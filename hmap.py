@@ -46,8 +46,8 @@ class request:
     def submit(self):
         # Echo client program
         # TODO: put these imports at top level scope
-        import socket, urlparse, select
-
+        import socket, select
+        import urllib.parse as urlparse
         (protocol, host) = urlparse.urlparse(self.url)[:2]
         
         HOST = host.split(':')[0]    # The remote host
@@ -58,10 +58,11 @@ class request:
         tries = 3
         wait_time = 1
         while tries != 0:
-            if tries < 3 and VERBOSE: print '!!! TRIES =', tries
+            if tries < 3 and VERBOSE: print ('!!! TRIES =', tries)
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect((HOST, PORT))
-            s.send(str(self))
+            # print(str(self))
+            s.send(str(self).encode('UTF-8'))
             data = ''
             ss = s
             try:
@@ -72,7 +73,7 @@ class request:
                     ss = ss[0] 
                     temp = ss.recv(1024)
                     if not temp: break
-                    data += temp # TODO:  more efficient to append to list
+                    data += str(temp) # TODO:  more efficient to append to list
                 s.close()
             except RuntimeError: # TODO: put these together!!!
                 tries -= 1
@@ -135,8 +136,9 @@ class response:
         response_line_match = re.search('(HTTP/1\.[01]) ([0-9]{3}) ([^\r\n]*)', text)
         self.response_code, self.response_text = response_line_match.groups()[1:]
 
-        blank_index = response_lines[:].index('')
-        if blank_index == -1:
+        try:
+            blank_index = response_lines[:].index('')
+        except ValueError:
             blank_index = len(response_lines)
 
         self.headers = response_lines[1:blank_index]
@@ -149,18 +151,18 @@ class response:
         return self.response_code, self.response_text
 
     def describe(self):
-        print '-'*70
-        print 'RESPONSE LINE:'
+        print ('-'*70)
+        print ('RESPONSE LINE:')
         if hasattr(self,'response_line'):
-            print self.response_line
-        print '-'*70
-        print 'HEADERS:'
+            print (self.response_line)
+        print ('-'*70)
+        print ('HEADERS:')
         if hasattr(self,'headers'):
-            print self.headers
-        print '-'*70
-        print 'BODY:'
+            print (self.headers)
+        print ('-'*70)
+        print ('BODY:')
         if hasattr(self,'body'):
-            print self.body
+            print (self.body)
 
     def has_header(self, name):
         for h in self.headers:
@@ -190,7 +192,7 @@ class response:
 # Functions for probing server and collecting characteristics
 
 def get_fingerprint(url):
-    print 'gathering data from:', url
+    print ('gathering data from:', url)
 
     basic_get(url) # TODO: this is redundant with later test...
     basic_options(url)
@@ -406,7 +408,7 @@ def malformed_method_line(url):
 
 def large_binary_searcher(url, large_helper, largest, guesses=[]):
     ranges = [(x,large_helper(url, x)) for x in [1]+guesses+[largest]]
-    
+
     while 1:
         halfways = find_halfways(ranges)
         if not halfways:
@@ -438,8 +440,8 @@ def find_halfways(ranges):
 
         if (smallest_next[0] - largest_previous[0]) == 1:
             continue
-        hw = ((smallest_next[0] - largest_previous[0]) / 2) + largest_previous[0]
-        if VERBOSE: print largest_previous, hw, smallest_next
+        hw = int((smallest_next[0] - largest_previous[0]) / 2) + largest_previous[0]
+        if VERBOSE: print (largest_previous, hw, smallest_next)
         halfways.append(hw)
 
     return halfways
@@ -542,7 +544,7 @@ fingerprint = {'LEXICAL' : {},
 
 def add_characteristic(category,name,value,data_type=None):
     # just add if not already in there
-    if not fingerprint[category].has_key(name):
+    if not name in fingerprint[category]:
         # TODO: probably don't need a data type just look at data...
         if data_type == 'LIST':
             value = [value]
@@ -558,7 +560,7 @@ def add_characteristic(category,name,value,data_type=None):
         fingerprint[category][name].append(value)
 
 def get_characteristics(test_name, res):
-    if VERBOSE: print 'processing', test_name
+    if VERBOSE: print ('processing', test_name)
     
     response_code, response_text = res.return_code()
     claimed_servername = res.servername()
@@ -626,13 +628,13 @@ def get_characteristics(test_name, res):
 #                         'Connection']],
 # clean up redundancies in lists of lists
 def winnow_ordered_list(ordered_list):
-    #print ordered_list
+    # print(ordered_list)
     if len(ordered_list) < 2:
-        #print 'ordered_list too small to look at'
+        #print('ordered_list too small to look at')
         return
     
-    ordered_list.sort(lambda a,b: cmp(len(a), len(b)))
-    #print 'sorted order', ordered_list
+    ordered_list.sort(lambda a,b: (len(a) > len(b)) - (len(a) < len(b)))
+    #print('sorted order', ordered_list)
 
     index = 0
     result = []
@@ -640,7 +642,7 @@ def winnow_ordered_list(ordered_list):
         is_ok = 1
         for other in ordered_list[index+1:]:
             if is_partial_ordered_sublist(elem, other):
-                #print elem,'is sublist of', other
+                #print(elem,'is sublist of', other)
                 is_ok = 0
                 break
         if is_ok:
@@ -661,7 +663,7 @@ def is_partial_ordered_sublist(small,large):
         return 0
     postsort = presort[:]
     postsort.sort()
-    #print presort, postsort
+    #print(presort, postsort)
     if -1 in presort or presort != postsort:
         return 0
     return 1
@@ -688,9 +690,9 @@ def find_most_similar(known_servers, subject):
         for code in codes:
             known_server_text = ''
             subject_server_text = ''
-            if server['LEXICAL'].has_key(code):
+            if code in server['LEXICAL']:
                 known_server_text = server['LEXICAL'][code]
-            if subject['LEXICAL'].has_key(code):
+            if code in subject['LEXICAL']:
                 subject_server_text = subject['LEXICAL'][code]
 
             if known_server_text == '' or subject_server_text == '':
@@ -704,9 +706,9 @@ def find_most_similar(known_servers, subject):
         # allow order
         known_server_allows = ''
         subject_server_allows = ''
-        if server['SYNTACTIC'].has_key('ALLOW_ORDER'):
+        if 'ALLOW_ORDER' in server['SYNTACTIC']:
             known_server_allows = server['SYNTACTIC']['ALLOW_ORDER']
-        if subject['SYNTACTIC'].has_key('ALLOW_ORDER'):
+        if 'ALLOW_ORDER' in subject['SYNTACTIC']:
             subject_server_allows = subject['SYNTACTIC']['ALLOW_ORDER']
 
         if known_server_allows and subject_server_allows:
@@ -742,8 +744,8 @@ def find_most_similar(known_servers, subject):
         subject_server_long_url = subject['SEMANTIC']['LONG_URL_RANGES']
         if known_server_long_url == subject_server_long_url:
             matches += 1
-            #print 'LONG_URL_RANGES match', server['LEXICAL']['SERVER_NAME']
-            #print known_server_long_url
+            #print('LONG_URL_RANGES match', server['LEXICAL']['SERVER_NAME'])
+            #print(known_server_long_url)
         else:
             mismatches += 1
 
@@ -752,8 +754,8 @@ def find_most_similar(known_servers, subject):
         subject_server_long_default = subject['SEMANTIC']['LONG_DEFAULT_RANGES']
         if known_server_long_default == subject_server_long_default:
             matches += 1
-            #print 'LONG_URL_DEFAULT_RANGES match', server['LEXICAL']['SERVER_NAME']
-            #print known_server_long_default
+            #print('LONG_URL_DEFAULT_RANGES match', server['LEXICAL']['SERVER_NAME'])
+            #print(known_server_long_default)
         else:
             mismatches += 1
 
@@ -782,10 +784,10 @@ def partial_same_order(list1, list2):
     common1 = [] # is there a simple way??
     common2 = []
     for i in list1:
-        if common_items.has_key(i):
+        if i in common_items:
             common1.append(i)
     for i in list2:
-        if common_items.has_key(i):
+        if  i in common_items:
             common2.append(i)
 
     #print common1,common2
@@ -797,7 +799,7 @@ def partial_same_order(list1, list2):
         return -1
 
 def usage():
-    print """
+    print ("""
 hmap is a web server fingerprinter.
 
 hmap [-hpgn] {url | filename}
@@ -812,7 +814,7 @@ e.g.
 -p           run with a prefetched file
 -g           gather only (don't do comparison)
 -c           show this many closest matches
-"""
+""")
     sys.exit()
 
 ###################################################################### 
@@ -824,7 +826,7 @@ VERBOSE = 0
 MATCH_COUNT = 5
 for key,val in opts:
     if key == '-p':
-        f = file(args[0])
+        f = open(args[0])
         prefetched = eval(f.read())
         f.close()
     elif key == '-g':
@@ -852,7 +854,7 @@ file_name_url = target_url[7:]
 if file_name_url.find(':') != -1:
     file_name_url, PORT = file_name_url.split(':')
 
-furl = file(file_name_url+'.'+str(PORT), 'w')
+furl = open(file_name_url+'.'+str(PORT), 'w')
 pprint.PrettyPrinter(stream=furl).pprint(fp)
 
 if GATHER_ONLY:
@@ -860,24 +862,24 @@ if GATHER_ONLY:
 
 known_servers = []
 for f in glob.glob('known.servers/*'):
-    ksf = file(f)
+    ksf = open(f)
     ks = eval(ksf.read())
     known_servers.append(ks)
     ksf.close()
 
 scores = find_most_similar(known_servers, fp)
-def score_cmp(score1,score2):
-    (server1, (matches1,mismatches1,unknowns1)) = score1
-    (server2, (matches2,mismatches2,unknowns2)) = score2
+# def score_cmp(score1,score2):
+#     (server1, (matches1,mismatches1,unknowns1)) = score1
+#     (server2, (matches2,mismatches2,unknowns2)) = score2
 
-    if -cmp(matches1,matches2) != 0:
-        return -cmp(matches1,matches2)
+#     if -cmp(matches1,matches2) != 0:
+#         return -cmp(matches1,matches2)
 
-    return cmp (server1,server2)
-scores.sort(score_cmp)
+#     return cmp (server1,server2)
 
-print
-print '                                     matches : mismatches : unknowns'
+scores.sort(key=lambda x: x[1][0], reverse=True)
+
+print 
+print ('                                     matches : mismatches : unknowns')
 for (server, (matches,mismatches,unknowns)) in scores[:MATCH_COUNT]:
-    print '%-40s   %3d : %3d : %3d'%(server['LEXICAL']['SERVER_NAME'][:40], matches, mismatches,unknowns)
-
+    print ('%-40s   %3d : %3d : %3d'%(server['LEXICAL']['SERVER_NAME'][:40], matches, mismatches,unknowns))
